@@ -1,19 +1,196 @@
-<h1>HR Work Pattern Analysis – Power BI Dashboard</h1>
-<h2>Overview</h2>
-This project is a Power BI dashboard designed to analyze employee work patterns using data combined from three Excel sheets. It focuses on key HR aspects such as:<br>
--Employee day-off preferences<br>
--Work from home (WFH) trends<br>
--Sick leave percentage and reasons<br>
-<br>
+# 📊 HR Data Analysis Dashboard (Power BI)
 
-Insights to plan company events and meetups effectively
-By merging the data via dates and creating custom DAX measures, this report delivers meaningful visuals that help HR teams understand behavior trends across the workforce.
+An interactive Power BI dashboard that turns monthly employee attendance sheets into a single view of **presence, work-from-home (WFH) and sick leave (SL)** for **April – June 2022**. HR can see company-wide trends by date and drill into each employee's attendance record.
 
-<i> Key Insights</i><br>
--Day-Off Preferences: Most employees prefer taking days off on Fridays and Mondays, creating long weekends.<br>
--WFH Trends: High preference for working remotely on Tuesdays and Thursdays, indicating comfort with hybrid work models.<br>
--Sick Leaves: Common midweek sick leaves with reasons like cold/flu and stress; suggests areas to improve employee well-being.<br>
--Event Planning: Ideal in-office event days are Wednesdays and Fridays before noon, maximizing participation.<br>
+![HR Data Analysis Dashboard](images/HR-Dashboard.png)
 
-<i>Conclusion</i><br>
-This analysis enables HR to make data-driven decisions for scheduling, policy updates, and event planning. By understanding when employees prefer to work, take off, or work remotely, the company can enhance productivity while supporting a flexible and healthy work culture.
+---
+
+## 📌 Table of Contents
+
+- [Dataset](#-dataset)
+- [Attendance Codes](#-attendance-codes)
+- [Dashboard Components](#-dashboard-components)
+- [Data Preparation (Power Query)](#-data-preparation-power-query)
+- [Data Model & DAX](#-data-model--dax)
+- [Key Insights](#-key-insights)
+- [Data Quality Notes](#-data-quality-notes)
+- [How to Use](#-how-to-use)
+- [Repository Structure](#-repository-structure)
+- [Future Improvements](#-future-improvements)
+- [Author](#-author)
+
+---
+
+## 🗂️ Dataset
+
+**Source:** `Attendance_Sheet_2022-2023_Masked.xlsx` (employee names are masked).
+
+| Sheet | Date range in sheet | Employees |
+|---|---|---|
+| Apr 2022 | 1 Apr – 1 May 2022 | 79 |
+| May 2022 | 2 May – 1 Jun 2022 | 85 |
+| June 2022 | 1 Jun – 30 Jun 2022 | 83 |
+| Attendance Key | Lookup of status codes | – |
+
+- **Layout:** one row per employee, one column per date (wide format), with per-employee summary columns (SL, PL, WFH, LWP, etc.) at the end of each sheet.
+- **Size:** 99 unique employee names across the three months; about 6,400 recorded day-entries after removing duplicates.
+- **Most common statuses:** Present (P) 3,542 · Weekly Off (WO) 2,053 · WFH 447 · Paid Leave (PL) 144 · LWP 80 · SL 37.
+
+---
+
+## 🏷️ Attendance Codes
+
+Taken from the **Attendance Key** sheet. Half-day codes count as **0.5 day**.
+
+| Code | Meaning | Code | Meaning |
+|---|---|---|---|
+| **P** | Present | **LWP** | Leave without pay |
+| **WFH** | Work from home | **HLWP** | Half-day LWP |
+| **HWFH** | Half-day WFH | **BL** | Birthday leave |
+| **PL** | Paid leave | **BRL** | Bereavement leave |
+| **HPL** | Half-day PL | **HBRL** | Half bereavement leave |
+| **SL** | Sick leave | **ML** | Menstrual leave |
+| **HSL** | Half-day SL | **HML** | Half-day ML |
+| **FFL** | Floating festival leave | **HFFL** | Half-day floating festival leave |
+| **WO** | Weekly off | **HO** | Holiday off *(not used in this data)* |
+
+---
+
+## 🧩 Dashboard Components
+
+| Component | Type | What it shows |
+|---|---|---|
+| **Month slicer** | Slicer | Filters the whole page to Apr 22, May 22 or Jun 22 |
+| **Total work days** | KPI card | **2,386** |
+| **Non work days** | KPI card | **2,053** (matches the total count of `WO` entries in the source sheets) |
+| **Employee summary table** | Table | Presence %, WFH % and SL % per employee, with a Total row |
+| **Attendance status matrix** | Matrix | Each employee's status code for 2022 |
+| **Presence % by Date** | Area chart | Daily presence trend |
+| **SL % by Date** | Area chart | Daily sick leave trend |
+| **WFH % by Date** | Area chart | Daily WFH trend |
+
+---
+
+## 🧹 Data Preparation (Power Query)
+
+1. **Load all three month sheets** and the Attendance Key.
+2. **Unpivot the date columns** so each row is `Employee Code | Name | Date | Status`.
+3. **Drop the summary columns** at the end of each sheet (they are re-calculated in DAX).
+4. **Trim text:** some values and headers have trailing spaces (e.g. `'BL '`, `'BRL '`, `'Employee Code '`, sheet name `'Attendance Key '`).
+5. **Remove duplicate dates:** 1 June 2022 appears in both the May and June sheets; keep one row per employee per date. (The two copies never conflict, but the May copy is blank.)
+6. **Join** with the Attendance Key to add a status description and a day weight (1 or 0.5).
+7. **Add a Calendar table** (Date, Month, Weekday).
+
+---
+
+## 🧮 Data Model & DAX
+
+```
+Calendar (1) ──< Attendance (*) >── (1) Employee
+                       │
+                       └── (*) >── (1) Attendance Key
+```
+
+> The measures below are **templates**. Adjust table and column names to match your model, and match the logic to how your own report defines each % (see the data quality notes).
+
+```DAX
+-- Day-equivalents per status group (half-day codes count 0.5)
+SL Days  = CALCULATE ( SUM ( Attendance[Weight] ), Attendance[Status] IN { "SL", "HSL" } )
+WFH Days = CALCULATE ( SUM ( Attendance[Weight] ), Attendance[Status] IN { "WFH", "HWFH" } )
+
+-- Recorded working days (exclude weekly offs, holidays and blanks)
+Working Days Recorded =
+CALCULATE (
+    COUNTROWS ( Attendance ),
+    NOT ( Attendance[Status] IN { "WO", "HO" } ),
+    NOT ( ISBLANK ( Attendance[Status] ) )
+)
+
+SL %  = DIVIDE ( [SL Days],  [Working Days Recorded] )
+WFH % = DIVIDE ( [WFH Days], [Working Days Recorded] )
+
+Non Work Days = CALCULATE ( COUNTROWS ( Attendance ), Attendance[Status] = "WO" )
+```
+
+---
+
+## 💡 Key Insights
+
+All figures below were calculated from the source workbook (duplicate 1 June rows removed; rates are over recorded working-day entries).
+
+**Overall**
+- About **45 sick-leave days** and **~450 WFH days** were taken across the three months (half-days counted as 0.5), or about **4.5 WFH days per employee** on average.
+- WFH share rises month over month: **8.5% (Apr) → 10.0% (May) → 13.5% (Jun)**.
+- Sick leave stays very low (**0.4% / 1.4% / 0.7%**), with the biggest single-day spike on **30 May**.
+
+**By day of week**
+
+| Weekday | WFH rate | Any-leave rate | SL rate |
+|---|---|---|---|
+| Monday | 9.3% | 7.3% | **1.8%** |
+| Tuesday | 8.7% | 7.3% | 1.5% |
+| Wednesday | 9.3% | 8.0% | 0.9% |
+| Thursday | 11.8% | 9.3% | 1.1% |
+| Friday | **12.5%** | **9.9%** | 0.7% |
+
+- **Friday** has the highest WFH and leave rates, followed by **Thursday**.
+- **Sick leave is highest on Mondays** and falls through the week.
+- **Tuesday** has the lowest WFH rate, and **Wednesday** is the most "in-office" day alongside Mon/Tue.
+
+**Late June caution**
+- From about **20 June onward only 4–10 employees have entries** (versus roughly 77–83 earlier in the month), and most of them are WFH. The **WFH % jump to ~100%** and the **dip in presence %** at the end of the charts reflect this thin data, **not** a confirmed company-wide switch to remote work. Confirm with HR before drawing conclusions.
+
+---
+
+## ⚠️ Data Quality Notes
+
+- **Presence % above 100%** (e.g. 1.65, 1.79, 2.17) and one **negative value (-7.00)** appear in the employee table, which should not be possible. The measure's numerator and denominator need review (for example, double-counted rows or half-day handling).
+- **Total work days (2,386)** could not be reproduced from the raw sheets with a simple count, so its definition should be documented in the report.
+- **Blank cells (~1,165)** exist, mainly late June and for employees who joined or left. Decide whether blank means "not employed", "not recorded" or "absent".
+- **Names vs. codes:** there are 99 distinct names but only 74 distinct employee codes, which is likely a side effect of masking. Do not use names as a unique key.
+- **Trailing spaces** in some status codes will break matching if not trimmed.
+- **Totals row** on the status matrix shows a single code (e.g. `BL`) because text is being aggregated; hide it for that visual.
+
+---
+
+## 🚀 How to Use
+
+1. Open **`HR-Dashboard.pbix`** in **Power BI Desktop**.
+2. If prompted, update the source path under **Home → Transform data → Data source settings**.
+3. Click **Refresh**.
+4. Use the **Month slicer** to filter every visual.
+5. Click an employee in either table to cross-filter the three trend charts.
+
+---
+
+## 📁 Repository Structure
+
+```
+HR-Dashboard/
+├── HR-Dashboard.pbix
+├── data/
+│   └── Attendance_Sheet_2022-2023_Masked.xlsx
+├── images/
+│   └── HR-Dashboard.png
+└── README.md
+```
+
+---
+
+## 🔮 Future Improvements
+
+- Fix presence % logic so it stays between 0% and 100%.
+- Add the KPI cards: **Total Sick Leaves**, **Average WFH per Employee** and **Most Preferred Day Off**.
+- Add a **weekday analysis** page (WFH, leave and SL by day of week).
+- Add a **leave-type breakdown** (PL, SL, LWP, FFL, BL, BRL, ML).
+- Add a **reason** field to the source data so sick-leave causes can be analysed.
+- Load the remaining 2023 months from the workbook name (2022-2023) for year-over-year trends.
+- Show active headcount per day so thin-data days (like late June) are visible.
+
+---
+
+## 👩‍💻 Author
+
+**Sanika**
+GitHub: [@Sanika881](https://github.com/Sanika881)
