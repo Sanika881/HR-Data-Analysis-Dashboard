@@ -1,4 +1,4 @@
-# 📊 HR Data Analysis Dashboard (Power BI)
+# 📊 HR Data Analysis Dashboard (Power BI) 
 
 An interactive Power BI dashboard that turns monthly employee attendance sheets into a single view of **presence, work-from-home (WFH) and sick leave (SL)** for **April – June 2022**. HR can see company-wide trends by date and drill into each employee's attendance record.
 
